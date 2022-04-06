@@ -18,6 +18,7 @@ from skimage.color import rgb2hsv
 from skimage.io import imread
 from skimage.io import imsave
 import colorsys
+from os.path import exists
 
 MAX_TRIALS = 10
 
@@ -191,12 +192,12 @@ def place_square(im, R, G, B):
   
   patch = im_copy[y-n:y+n,x-n:x+n,:] 
 
-  print('patch value:')
+  # print('patch value:')
 
-  print(patch)
+  # print(patch)
   
-  plt.imshow(patch)
-  plt.show()
+  # plt.imshow(patch)
+  # plt.show()
   
   # Convert patch to HSV
   #patch_hsv = rgb2hsv(patch)
@@ -206,7 +207,7 @@ def place_square(im, R, G, B):
   s1 = np.mean(patch_hsv[:,:,1])
   v1 = np.mean(patch_hsv[:,:,2])
   
-  print(f"Patch HSV {round(h1,2)} {round(s1,2)} {round(v1,2)}")
+  # print(f"Patch HSV {round(h1,2)} {round(s1,2)} {round(v1,2)}")
   
   # Generate a small test square and set colours to square colour
   square = np.zeros((10,10,3))
@@ -219,7 +220,7 @@ def place_square(im, R, G, B):
   s2 = np.mean(square_hsv[:,:,1])
   v2 = np.mean(square_hsv[:,:,2])
   
-  print(f"Square HSV {round(h2,2)} {round(s2,2)} {round(v2,2)}")
+  # print(f"Square HSV {round(h2,2)} {round(s2,2)} {round(v2,2)}")
 
   # Differences
   dh = h1 - h2
@@ -228,7 +229,9 @@ def place_square(im, R, G, B):
   
   # Euclidean distance in 3D HSV space
   hsv_distance = np.sqrt( (h1-h2)**2 + (s1-s2)**2 + (v1-v2)**2)
-  return im, patch, hsv_distance
+
+
+  return im, patch, hsv_distance, h1,s1,v1,h2,s2,v2,dh,ds,dv
 
 
 
@@ -280,37 +283,27 @@ def run_analysis(folder, initial_delay, delay):# Loop over the images, loading t
 def run_analysis_from_csv_all_participants(boxes):# Loop over the images, loading them and doing the analysis
 # With float images so can use NaN
 # Also write out to file
-
-
   hsv_distances = []
+  trial_details = []
 
   delay = 5
   initial_delay = 5
 
-
-
   # Loop over the images, loading them and doing the analysis
-
-
   go = True
 
   box_index = 0
   subject_index = 0
 
   trial_index = 0
+  prev_id = None
+  prev_video = None
 
   while go:
-    seconds = initial_delay + (trial_index * delay)
-    trial_number = trial_index + 1
-    frame_number = seconds * 30 # fps = 30
-    print(f"trial {trial_number}: frame {frame_number} at {seconds} seconds")
-   
-
     #show(image)
+    if box_index >= len(boxes):
+      break
 
- 
-
-    
     this_box = boxes[box_index]
     box_name = this_box['box_name']
     this_id = this_box['id']
@@ -321,39 +314,108 @@ def run_analysis_from_csv_all_participants(boxes):# Loop over the images, loadin
       box_index += 1
       continue
 
+
+    if prev_video is not None:
+      if prev_video != video:
+        print('New video!')
+        trial_index = 0
+
     folder = 'data/frames/' + video + '/'
 
-    filename = folder + f"frame{frame_number:04}.jpg"
-    print(filename)
-    image = imread(filename)
-    image = skimage.img_as_float(image)
+    seconds = initial_delay + (trial_index * delay)
+    trial_number = trial_index + 1
+    frame_number = seconds * 30 # fps = 30
 
-    if box_index > 1:
+   
+
+    filename = folder + f"frame{frame_number:04}.jpg"
+    # print(filename)
+    # if exists(filename):
+    #   image = imread(filename)
+    #   image = skimage.img_as_float(image)
+    # else:
+    #   # File was not found here!
+    #   # KEY UPDATES
+    #   print('FILE NOT FOUND')
+    #   trial_index += 1
+
+    #   box_index += 1
+    #   prev_id = this_id
+    #   prev_video = video
+    #   continue
+
+    try:
+      image = imread(filename)
+      image = skimage.img_as_float(image)
+    except Exception as e:
+      # File was not found here!
+      # KEY UPDATES
+      print('FILE NOT FOUND')
+      trial_index += 1
+
+      box_index += 1
+      prev_id = this_id
+      prev_video = video
+      continue
+
+    if prev_id is not None:
       if prev_id != this_id:
+        # We have moved on to a new subject
         subject_index += 1
+        trial_index = 0
 
     colour = COLOURS[box_name]
 
     cr = colour[0]
     cg = colour[1]
     cb = colour[2]
-    im2, patch,d = place_square(image,cr,cg,cb)
+    # RGB values need to be 0-1
+    cr = cr/255
+    cg = cg/255
+    cb = cb/255
+    im2, patch,d, h1,s1,v1,h2,s2,v2,dh,ds,dv = place_square(image,cr,cg,cb)
 
     # show(im2)
     # show(patch)
 
-    print(box_index, subject_index, video)
-    print(f"HSV distance = {d}")
+    # print(box_index, subject_index, video)
+    # print(f"HSV distance = {d}")
     hsv_distances.append(d)
     im2 = skimage.img_as_ubyte(im2)
-    imsave(folder+f"trial_{trial_number}_frame_{frame_number:04}_s_{seconds}.png", im2)
+    # imsave(folder+f"trial_{trial_number}_frame_{frame_number:04}_s_{seconds}.png", im2)
+    print(f"{box_index} - trial {trial_number}: frame {frame_number} at {seconds} seconds {filename} {video} {box_name}    {this_id}")
 
+    # KEY UPDATES
     trial_index += 1
-    print('index',trial_index)
+
     box_index += 1
     prev_id = this_id
+    prev_video = video
+
+    # print('NEXT!')
+
+    trial_details.append({'box_index': box_index,
+      'trial_index':trial_index,
+      'video': video,
+      'box_colour': colour,
+      'box_name': box_name,
+      'hsv_distance': d,
+      'dh': dh,
+      'ds': ds,
+      'dv':dv,
+      'pid': this_id,
+      'h1':h1,
+      's2':s2,
+      'v1':v1,
+      'h2':h2,
+      's1':s1,
+      'v2':v2,
+
+      })
+
+ 
 
       
-  return hsv_distances
+  return hsv_distances, trial_details
 
 
